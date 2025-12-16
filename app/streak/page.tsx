@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Flame, Trophy, TrendingUp, CalendarIcon } from 'lucide-react'
+import { ArrowLeft, Flame, Trophy, TrendingUp, CalendarIcon } from "lucide-react"
 import Link from "next/link"
 
 export default function StreakPage() {
@@ -15,18 +15,105 @@ export default function StreakPage() {
   })
 
   useEffect(() => {
-    const savedStats = localStorage.getItem("athleteStats")
-    const savedStreak = localStorage.getItem("streakData")
-    
-    if (savedStats) {
-      const data = JSON.parse(savedStats)
+    const calculateStreakStats = () => {
+      const history = localStorage.getItem("routineCompletionHistory")
+      const routines = localStorage.getItem("athleteRoutines")
+
+      if (!history || !routines) {
+        setStats({
+          currentStreak: 0,
+          longestStreak: 0,
+          totalDaysCompleted: 0,
+          streakHistory: [],
+        })
+        return
+      }
+
+      const completionHistory = JSON.parse(history)
+      const allRoutines = JSON.parse(routines)
+
+      const getDailyRoutinesCount = (date: Date) => {
+        const dayOfWeek = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][date.getDay()]
+        return allRoutines.filter((routine: any) => {
+          if (routine.type === "일상" || routine.type === "daily") {
+            return routine.days && routine.days[dayOfWeek]
+          }
+          return false
+        }).length
+      }
+
+      const isDateFullyCompleted = (dateKey: string, date: Date) => {
+        const expectedCount = getDailyRoutinesCount(date)
+        if (expectedCount === 0) return false
+
+        const completedRoutines = completionHistory[dateKey] || []
+        const dailyRoutineIds = allRoutines
+          .filter((routine: any) => {
+            const dayOfWeek = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"][date.getDay()]
+            if (routine.type === "일상" || routine.type === "daily") {
+              return routine.days && routine.days[dayOfWeek]
+            }
+            return false
+          })
+          .map((r: any) => r.id)
+
+        const completedDailyRoutines = completedRoutines.filter((id: string) => dailyRoutineIds.includes(id))
+
+        return completedDailyRoutines.length === expectedCount
+      }
+
+      // Calculate current streak
+      let currentStreak = 0
+      let longestStreak = 0
+      let tempStreak = 0
+      let totalDaysCompleted = 0
+      const today = new Date()
+      today.setHours(0, 0, 0, 0)
+
+      // Calculate current streak from today backwards
+      for (let i = 0; i < 365; i++) {
+        const checkDate = new Date(today)
+        checkDate.setDate(today.getDate() - i)
+        const dateKey = checkDate.toISOString().split("T")[0]
+
+        if (isDateFullyCompleted(dateKey, checkDate)) {
+          currentStreak++
+        } else {
+          if (i > 0) break
+        }
+      }
+
+      // Calculate longest streak and total days completed
+      const allDates = Object.keys(completionHistory).sort()
+      for (const dateKey of allDates) {
+        const checkDate = new Date(dateKey)
+        if (isDateFullyCompleted(dateKey, checkDate)) {
+          totalDaysCompleted++
+          tempStreak++
+          longestStreak = Math.max(longestStreak, tempStreak)
+        } else {
+          tempStreak = 0
+        }
+      }
+
+      longestStreak = Math.max(longestStreak, currentStreak)
+
       setStats({
-        currentStreak: data.streak || 0,
-        longestStreak: data.longestStreak || 0,
-        totalDaysCompleted: data.totalDaysCompleted || 0,
-        streakHistory: savedStreak ? JSON.parse(savedStreak) : [],
+        currentStreak,
+        longestStreak,
+        totalDaysCompleted,
+        streakHistory: [],
       })
     }
+
+    calculateStreakStats()
+
+    const handleUpdate = () => {
+      calculateStreakStats()
+    }
+
+    window.addEventListener("routinesUpdated", handleUpdate)
+    return () => window.removeEventListener("routinesUpdated", handleUpdate)
   }, [])
 
   const getStreakMessage = (streak: number) => {

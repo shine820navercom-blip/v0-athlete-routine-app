@@ -19,17 +19,36 @@ interface Routine {
   name: string
   time: string
   duration?: number
-  completed: boolean
   type: "daily" | "training" | "game"
   enableTime?: boolean
   enableTimer?: boolean
+  days?: {
+    mon: boolean
+    tue: boolean
+    wed: boolean
+    thu: boolean
+    fri: boolean
+    sat: boolean
+    sun: boolean
+  }
 }
 
 export function RoutineList({ date, hasTraining, hasGame }: RoutineListProps) {
   const [routines, setRoutines] = useState<Routine[]>([])
+  const [completedRoutines, setCompletedRoutines] = useState<Set<string>>(new Set())
   const [refreshKey, setRefreshKey] = useState(0)
   const [timerModalOpen, setTimerModalOpen] = useState(false)
   const [selectedRoutine, setSelectedRoutine] = useState<Routine | null>(null)
+
+  const getDateKey = (date: Date) => {
+    return date.toISOString().split("T")[0]
+  }
+
+  const getDayKey = (date: Date): keyof Routine["days"] => {
+    const dayIndex = date.getDay()
+    const dayKeys: (keyof Routine["days"])[] = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"]
+    return dayKeys[dayIndex]
+  }
 
   useEffect(() => {
     const savedRoutines = localStorage.getItem("athleteRoutines")
@@ -37,7 +56,13 @@ export function RoutineList({ date, hasTraining, hasGame }: RoutineListProps) {
       const parsed = JSON.parse(savedRoutines)
       setRoutines(parsed)
     }
-  }, [refreshKey])
+
+    // Load completion status for the selected date
+    const dateKey = getDateKey(date)
+    const history = JSON.parse(localStorage.getItem("routineCompletionHistory") || "{}")
+    const completedIds = history[dateKey] || []
+    setCompletedRoutines(new Set(completedIds))
+  }, [refreshKey, date])
 
   useEffect(() => {
     const handleRoutinesUpdate = () => {
@@ -48,42 +73,73 @@ export function RoutineList({ date, hasTraining, hasGame }: RoutineListProps) {
     return () => window.removeEventListener("routinesUpdated", handleRoutinesUpdate)
   }, [])
 
-  useEffect(() => {
-    if (routines.length > 0) {
-      localStorage.setItem("athleteRoutines", JSON.stringify(routines))
-      const stats = JSON.parse(
-        localStorage.getItem("athleteStats") ||
-          '{"weeklyCompletion":0,"streak":0,"wins":0,"losses":0,"draws":0,"totalRoutines":0}',
-      )
-      stats.totalRoutines = routines.length
-
-      const completedToday = routines.filter((r) => r.completed).length
-      const totalToday = routines.length
-      stats.weeklyCompletion = totalToday > 0 ? Math.round((completedToday / totalToday) * 100) : 0
-
-      localStorage.setItem("athleteStats", JSON.stringify(stats))
+  const currentDayKey = getDayKey(date)
+  const filteredRoutines = routines.filter((routine) => {
+    if (routine.type === "daily") {
+      if (routine.days) {
+        return routine.days[currentDayKey] === true
+      }
+      return true
     }
-  }, [routines])
 
-  const filteredRoutines = routines.filter(
-    (routine) =>
-      routine.type === "daily" || (routine.type === "training" && hasTraining) || (routine.type === "game" && hasGame),
-  )
+    if (routine.type === "training") return hasTraining
+    if (routine.type === "game") return hasGame
+
+    return false
+  })
 
   const toggleRoutine = (id: string) => {
     const routine = routines.find((r) => r.id === id)
-    if (routine && !routine.completed && routine.enableTimer && routine.duration) {
+    const isCompleted = completedRoutines.has(id)
+
+    if (routine && !isCompleted && routine.enableTimer && routine.duration) {
       setSelectedRoutine(routine)
       setTimerModalOpen(true)
     } else {
-      setRoutines(routines.map((r) => (r.id === id ? { ...r, completed: !r.completed } : r)))
+      const dateKey = getDateKey(date)
+      const history = JSON.parse(localStorage.getItem("routineCompletionHistory") || "{}")
+
+      if (!history[dateKey]) {
+        history[dateKey] = []
+      }
+
+      if (!isCompleted) {
+        history[dateKey].push(id)
+        setCompletedRoutines(new Set([...completedRoutines, id]))
+      } else {
+        history[dateKey] = history[dateKey].filter((rid: string) => rid !== id)
+        const newCompleted = new Set(completedRoutines)
+        newCompleted.delete(id)
+        setCompletedRoutines(newCompleted)
+      }
+
+      localStorage.setItem("routineCompletionHistory", JSON.stringify(history))
+
+      // Trigger stats update
+      window.dispatchEvent(new Event("routinesUpdated"))
     }
   }
 
   const handleTimerComplete = () => {
     if (selectedRoutine) {
-      setRoutines(routines.map((r) => (r.id === selectedRoutine.id ? { ...r, completed: true } : r)))
+      const dateKey = getDateKey(date)
+      const history = JSON.parse(localStorage.getItem("routineCompletionHistory") || "{}")
+
+      if (!history[dateKey]) {
+        history[dateKey] = []
+      }
+
+      if (!history[dateKey].includes(selectedRoutine.id)) {
+        history[dateKey].push(selectedRoutine.id)
+      }
+
+      localStorage.setItem("routineCompletionHistory", JSON.stringify(history))
+
+      setCompletedRoutines(new Set([...completedRoutines, selectedRoutine.id]))
       setSelectedRoutine(null)
+
+      // Trigger stats update
+      window.dispatchEvent(new Event("routinesUpdated"))
     }
   }
 
@@ -91,34 +147,43 @@ export function RoutineList({ date, hasTraining, hasGame }: RoutineListProps) {
   const trainingRoutines = filteredRoutines.filter((r) => r.type === "training")
   const gameRoutines = filteredRoutines.filter((r) => r.type === "game")
 
-  const RoutineCard = ({ routine }: { routine: Routine }) => (
-    <div
-      className={`p-4 rounded-lg border transition-all ${
-        routine.completed ? "bg-muted border-muted" : "bg-card hover:bg-accent"
-      }`}
-    >
-      <div className="flex items-start gap-3">
-        <Checkbox checked={routine.completed} onCheckedChange={() => toggleRoutine(routine.id)} className="mt-1" />
-        <div className="flex-1 min-w-0">
-          <h4 className={`font-semibold mb-1 ${routine.completed ? "line-through text-muted-foreground" : ""}`}>
-            {routine.name}
-          </h4>
-          <div className="flex flex-col gap-1 text-sm text-muted-foreground">
-            {routine.enableTime !== false && routine.time && (
-              <span className="flex items-center gap-1">
-                <Clock className="w-3 h-3" />
-                {routine.time}
-              </span>
-            )}
-            {routine.enableTimer && routine.duration && <span>{routine.duration}분</span>}
+  const RoutineCard = ({ routine }: { routine: Routine }) => {
+    const isCompleted = completedRoutines.has(routine.id)
+
+    return (
+      <div
+        className={`p-4 rounded-lg border transition-all ${
+          isCompleted ? "bg-muted border-muted" : "bg-card hover:bg-accent"
+        }`}
+      >
+        <div className="flex items-start gap-3">
+          <Checkbox checked={isCompleted} onCheckedChange={() => toggleRoutine(routine.id)} className="mt-1" />
+          <div className="flex-1 min-w-0">
+            <h4 className={`font-semibold mb-1 ${isCompleted ? "line-through text-muted-foreground" : ""}`}>
+              {routine.name}
+            </h4>
+            <div className="flex flex-col gap-1 text-sm text-muted-foreground">
+              {routine.enableTime !== false && routine.time && (
+                <span className="flex items-center gap-1">
+                  <Clock className="w-3 h-3" />
+                  {routine.time}
+                </span>
+              )}
+              {routine.enableTimer && routine.duration && <span>{routine.duration}분</span>}
+            </div>
           </div>
+          <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
+            <MoreVertical className="w-4 h-4" />
+          </Button>
         </div>
-        <Button variant="ghost" size="icon" className="h-8 w-8 flex-shrink-0">
-          <MoreVertical className="w-4 h-4" />
-        </Button>
       </div>
-    </div>
-  )
+    )
+  }
+
+  const completionRate =
+    filteredRoutines.length > 0
+      ? Math.round((filteredRoutines.filter((r) => completedRoutines.has(r.id)).length / filteredRoutines.length) * 100)
+      : 0
 
   return (
     <>
@@ -217,24 +282,10 @@ export function RoutineList({ date, hasTraining, hasGame }: RoutineListProps) {
         <div className="mt-6 pt-6 border-t">
           <div className="flex items-center justify-between text-sm mb-2">
             <span className="text-muted-foreground">오늘의 완료율</span>
-            <span className="font-semibold text-lg">
-              {filteredRoutines.length > 0
-                ? Math.round((filteredRoutines.filter((r) => r.completed).length / filteredRoutines.length) * 100)
-                : 0}
-              %
-            </span>
+            <span className="font-semibold text-lg">{completionRate}%</span>
           </div>
           <div className="h-3 bg-muted rounded-full overflow-hidden">
-            <div
-              className="h-full bg-primary transition-all duration-500"
-              style={{
-                width: `${
-                  filteredRoutines.length > 0
-                    ? (filteredRoutines.filter((r) => r.completed).length / filteredRoutines.length) * 100
-                    : 0
-                }%`,
-              }}
-            />
+            <div className="h-full bg-primary transition-all duration-500" style={{ width: `${completionRate}%` }} />
           </div>
         </div>
       </Card>

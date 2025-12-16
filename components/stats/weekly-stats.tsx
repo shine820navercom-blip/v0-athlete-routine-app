@@ -1,18 +1,80 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { CheckCircle2, Circle } from "lucide-react"
 
 export function WeeklyStats() {
-  const weekData = [
-    { day: "월", date: "12/9", rate: 100, completed: 8, total: 8 },
-    { day: "화", date: "12/10", rate: 87, completed: 7, total: 8 },
-    { day: "수", date: "12/11", rate: 100, completed: 8, total: 8 },
-    { day: "목", date: "12/12", rate: 75, completed: 6, total: 8 },
-    { day: "금", date: "12/13", rate: 100, completed: 8, total: 8 },
-    { day: "토", date: "12/14", rate: 90, completed: 9, total: 10 },
-    { day: "일", date: "12/15", rate: 85, completed: 6, total: 7 },
-  ]
+  const [weekData, setWeekData] = useState<any[]>([])
+  const [weeklyAvg, setWeeklyAvg] = useState(0)
+
+  useEffect(() => {
+    loadWeekData()
+
+    const handleUpdate = () => {
+      loadWeekData()
+    }
+
+    window.addEventListener("routineUpdated", handleUpdate)
+    return () => {
+      window.removeEventListener("routineUpdated", handleUpdate)
+    }
+  }, [])
+
+  const loadWeekData = () => {
+    const history = JSON.parse(localStorage.getItem("routineCompletionHistory") || "{}")
+    const routines = JSON.parse(localStorage.getItem("athleteRoutines") || "[]")
+    const dailySchedule = JSON.parse(localStorage.getItem("dailySchedule") || "{}")
+
+    const days = ["일", "월", "화", "수", "목", "금", "토"]
+    const dayMap: Record<number, string> = { 0: "sun", 1: "mon", 2: "tue", 3: "wed", 4: "thu", 5: "fri", 6: "sat" }
+    const data = []
+
+    let totalRate = 0
+    let daysCount = 0
+
+    for (let i = 6; i >= 0; i--) {
+      const date = new Date()
+      date.setDate(date.getDate() - i)
+      const dateKey = date.toISOString().split("T")[0]
+      const dayName = days[date.getDay()]
+      const dayKey = dayMap[date.getDay()]
+
+      const schedule = dailySchedule[dateKey] || { hasTraining: false, hasGame: false }
+
+      const expectedRoutines = routines.filter((r: any) => {
+        if (r.type === "일상") {
+          return r.days && r.days[dayKey]
+        } else if (r.type === "훈련") {
+          return schedule.hasTraining
+        } else if (r.type === "경기") {
+          return schedule.hasGame
+        }
+        return false
+      })
+
+      const completedRoutines = history[dateKey] || []
+      const total = expectedRoutines.length
+      const completed = completedRoutines.length
+      const rate = total > 0 ? Math.round((completed / total) * 100) : 0
+
+      data.push({
+        day: dayName,
+        date: `${date.getMonth() + 1}/${date.getDate()}`,
+        rate,
+        completed,
+        total,
+      })
+
+      if (total > 0) {
+        totalRate += rate
+        daysCount++
+      }
+    }
+
+    setWeekData(data)
+    setWeeklyAvg(daysCount > 0 ? Math.round(totalRate / daysCount) : 0)
+  }
 
   return (
     <Card className="p-6">
@@ -40,7 +102,7 @@ export function WeeklyStats() {
               </div>
             </div>
 
-            {day.rate === 100 ? (
+            {day.rate === 100 && day.total > 0 ? (
               <CheckCircle2 className="w-5 h-5 text-green-500" />
             ) : (
               <Circle className="w-5 h-5 text-muted-foreground" />
@@ -52,7 +114,7 @@ export function WeeklyStats() {
       <div className="mt-6 pt-6 border-t">
         <div className="flex items-center justify-between">
           <span className="text-sm text-muted-foreground">주간 평균</span>
-          <span className="text-2xl font-bold">91%</span>
+          <span className="text-2xl font-bold">{weeklyAvg}%</span>
         </div>
       </div>
     </Card>

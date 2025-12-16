@@ -24,6 +24,9 @@ const sports = [
   { id: "judo", name: "유도", image: "/judo-gi-uniform-martial-arts-mat.jpg" },
   { id: "skating", name: "스케이팅", image: "/ice-skating-rink-skates.jpg" },
   { id: "rugby", name: "럭비", image: "/rugby-ball-field-grass.jpg" },
+  { id: "ballet", name: "발레", image: "/ballet-shoes-dance-studio.jpg" },
+  { id: "climbing", name: "클라이밍", image: "/rock-climbing-wall-indoor-gym.jpg" },
+  { id: "gymnastics", name: "체조", image: "/gymnastics-mat-equipment-training.jpg" },
 ]
 
 export function SportSelection({ onSelect }: SportSelectionProps) {
